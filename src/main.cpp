@@ -8,34 +8,34 @@
 #define BUZZER4 30
 #define BUZZER5 34
 #define BUZZER6 38
-#define LED_1 39
-#define LED_2 35
-#define LED_3 31
-#define LED_4 32
-#define LED_5 36
-#define LED_6 40
-#define VALVE1 47
-#define VALVE2 45
-#define VALVE3 43
-#define VALVE4 42
-#define VALVE5 44
-#define VALVE6 46
+#define LED_1   39
+#define LED_2   35
+#define LED_3   31
+#define LED_4   32
+#define LED_5   36
+#define LED_6   40
+#define VALVE1  47
+#define VALVE2  45
+#define VALVE3  43
+#define VALVE4  42
+#define VALVE5  44
+#define VALVE6  46
 #define SENSOR1 25
 #define SENSOR2 27
 #define SENSOR3 29
 #define SENSOR4 28
 #define SENSOR5 26
 #define SENSOR6 24
-#define SPOT1 12
-#define SPOT2 7
-#define SPOT3 8
-#define SPOT4 9
-#define SPOT5 10
-#define SPOT6 11
-#define IR 6
-#define GO_CUE 48
+#define SPOT1   12
+#define SPOT2   7
+#define SPOT3   8
+#define SPOT4   9
+#define SPOT5   10
+#define SPOT6   11
+#define IR      6
+#define GO_CUE  48
 #define NOGO_CUE 50
-#define SYNC 2
+#define SYNC    2
 #define SYNC_GND 3
 
 #define NEW_PIN1 49
@@ -66,6 +66,10 @@ static int chunkIndex = 0; // how many messages in the current batch
 unsigned long message_count = 0;
 bool Send_messages = true;
 bool start_wait = true;
+
+// User-configurable delay in milliseconds between reads/messages
+// If set to 0, there is effectively no delay.
+int samplingDelay = 0;  
 
 //
 // Build one 11-byte message in 'dest':
@@ -119,7 +123,12 @@ void setup() {
   digitalWrite(13, HIGH);
 
   SerialUSB.begin(115200);
+
+  // (Optional) Set an initial delay here, for example:
+  // samplingDelay = 5; // 5 ms delay
 }
+
+uint64_t previous_state = 0;
 
 void loop() {
   // Wait for 's' from the host to start
@@ -128,51 +137,57 @@ void loop() {
       if (SerialUSB.read() == 's') {
         SerialUSB.print("s");
         start_wait = false;
+        // Initialize previous_state with first reading
+        previous_state = 0;
+        for (unsigned int i = 0; i < num_pins; i++) {
+          if (digitalRead(pin_list[i]) == HIGH) {
+            previous_state |= ((uint64_t)1 << i);
+          }
+        }
       }
     }
   }
 
-  // Main loop: read pins, build messages, and batch them
+  // Main loop: read pins and send only on change
   while (Send_messages) {
-    uint64_t message = 0;
+    uint64_t current_state = 0;
 
     // --- 1) Toggle SYNC for each reading ------------------------------------
     digitalWrite(SYNC, HIGH);
-    // ------------------------------------------------------------------------
-
-    // --- 2) Gather pin states into "message" bits ---------------------------
+    
+    // --- 2) Gather current pin states --------------------------------------
     for (unsigned int i = 0; i < num_pins; i++) {
-      int sensorValue;
-      // digital read
-      sensorValue = digitalRead(pin_list[i]);
-
-      if (sensorValue == HIGH) {
-        message |= ((uint64_t)1 << i);
+      if (digitalRead(pin_list[i]) == HIGH) {
+        current_state |= ((uint64_t)1 << i);
       }
     }
     digitalWrite(SYNC, LOW);
 
-    // --- 3) Build the 11-byte message into chunkBuffer ----------------------
-    byte* destPtr = &chunkBuffer[chunkIndex * MESSAGE_SIZE];
-    buildMessage(message, message_count, destPtr);
-    chunkIndex++;
+    // --- 3) Check if state changed ----------------------------------------
+    if (current_state != previous_state) {
+      // State changed - send a message
+      byte message_buffer[MESSAGE_SIZE];
+      buildMessage(current_state, message_count, message_buffer);
+      SerialUSB.write(message_buffer, MESSAGE_SIZE);
+      
+      // Update previous state
+      previous_state = current_state;
+    }
+
+    // Increment message count for every read, not just when we send
     message_count++;
 
-    // If the chunk is full, send it
-    if (chunkIndex >= CHUNK_SIZE) {
-      flushChunk();
-    }
-    // ------------------------------------------------------------------------
-
-    // --- 4) Check for 'e' from the host to end ------------------------------
+    // --- 4) Check for 'e' from the host to end ----------------------------
     if (SerialUSB.available() > 0) {
       if (SerialUSB.read() == 'e') {
         start_wait = true;
         break;
       }
     }
-  }
 
-  // If the loop ends, send any leftover data
-  flushChunk();
+    // --- 5) Apply the user-configurable delay (if any) --------------------
+    if (samplingDelay > 0) {
+      delay(samplingDelay);
+    }
+  }
 }
