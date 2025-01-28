@@ -120,7 +120,7 @@ void setup() {
   pinMode(SYNC, OUTPUT);
   pinMode(SYNC_GND, OUTPUT);
   digitalWrite(SYNC_GND, LOW);
-  digitalWrite(13, HIGH);
+  
 
   SerialUSB.begin(115200);
 
@@ -130,6 +130,23 @@ void setup() {
 
 uint64_t previous_state = 0;
 
+void resetDue() {
+  RSTC->RSTC_CR = RSTC_CR_PROCRST | RSTC_CR_PERRST | RSTC_CR_EXTRST | (0xA5 << 24);
+}
+
+void resetUSB() {
+  // End USB connection
+  SerialUSB.end();
+  delay(1000);
+
+  // Trigger USB reset via hardware register (force re-enumeration)
+  *((uint32_t*)0x400E0E00U) = 0x80; // Disable USB
+  delay(1000);
+  *((uint32_t*)0x400E0E00U) = 0x00; // Enable USB
+
+  SerialUSB.begin(115200);  // Restart USB communication
+}
+
 void loop() {
   // Wait for 's' from the host to start
   while (start_wait) {
@@ -137,6 +154,7 @@ void loop() {
       if (SerialUSB.read() == 's') {
         SerialUSB.print("s");
         start_wait = false;
+        digitalWrite(13, HIGH);
         // Initialize previous_state with first reading
         previous_state = 0;
         for (unsigned int i = 0; i < num_pins; i++) {
@@ -181,6 +199,13 @@ void loop() {
     if (SerialUSB.available() > 0) {
       if (SerialUSB.read() == 'e') {
         start_wait = true;
+        SerialUSB.flush();
+        // SerialUSB.end();
+        // delay(1000);
+        // SerialUSB.begin(115200);
+        resetUSB();
+        digitalWrite(13, LOW);
+        message_count = 0;
         break;
       }
     }
