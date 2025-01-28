@@ -35,12 +35,21 @@
 #define IR      6
 #define GO_CUE  48
 #define NOGO_CUE 50
+
+#define LASER_SYNC 22
+#define NEW_PIN2 23
+#define NEW_PIN3 48
+#define NEW_PIN4 49
+#define NEW_PIN5 50
+#define NEW_PIN6 51
+#define NEW_PIN7 52
+#define NEW_PIN8 53
+
+#define CAMERA_SYNC 62    // A8 pin
+#define HEADSENSOR_SYNC 63 // A9 pin
+
 #define SYNC    2
 #define SYNC_GND 3
-
-#define NEW_PIN1 49
-#define NEW_PIN2 51
-#define NEW_PIN3 62 // A8 pin
 
 // Pin list
 uint8_t pin_list[] = {
@@ -49,7 +58,7 @@ uint8_t pin_list[] = {
   30, 31, 32, 33, 34, 35,
   36, 37, 38, 39, 40, 41,
   42, 43, 44, 45, 46, 47,
-  48, 50, 62, 63
+  48, 50, 62, 63, 22
 };
 
 const unsigned int num_pins = sizeof(pin_list) / sizeof(pin_list[0]);
@@ -120,7 +129,7 @@ void setup() {
   pinMode(SYNC, OUTPUT);
   pinMode(SYNC_GND, OUTPUT);
   digitalWrite(SYNC_GND, LOW);
-  
+  digitalWrite(13, LOW);
 
   SerialUSB.begin(115200);
 
@@ -129,23 +138,6 @@ void setup() {
 }
 
 uint64_t previous_state = 0;
-
-void resetDue() {
-  RSTC->RSTC_CR = RSTC_CR_PROCRST | RSTC_CR_PERRST | RSTC_CR_EXTRST | (0xA5 << 24);
-}
-
-void resetUSB() {
-  // End USB connection
-  SerialUSB.end();
-  delay(1000);
-
-  // Trigger USB reset via hardware register (force re-enumeration)
-  *((uint32_t*)0x400E0E00U) = 0x80; // Disable USB
-  delay(1000);
-  *((uint32_t*)0x400E0E00U) = 0x00; // Enable USB
-
-  SerialUSB.begin(115200);  // Restart USB communication
-}
 
 void loop() {
   // Wait for 's' from the host to start
@@ -199,11 +191,6 @@ void loop() {
     if (SerialUSB.available() > 0) {
       if (SerialUSB.read() == 'e') {
         start_wait = true;
-        SerialUSB.flush();
-        // SerialUSB.end();
-        // delay(1000);
-        // SerialUSB.begin(115200);
-        resetUSB();
         digitalWrite(13, LOW);
         message_count = 0;
         break;
